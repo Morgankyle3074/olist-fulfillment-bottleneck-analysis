@@ -187,4 +187,60 @@ ORDER BY degradation_rank
 LIMIT 20;
 
 
+-- ============================================================
+-- 07_tableau_exports.sql
+-- Creates an enriched view for Tableau + export commands
+-- ============================================================
+
+DROP VIEW IF EXISTS vw_order_enrichment;
+
+CREATE VIEW vw_order_enrichment AS
+WITH item_agg AS (
+  SELECT
+    oi.order_id,
+    COUNT(*) AS items_per_order,
+    COUNT(DISTINCT oi.seller_id) AS sellers_per_order,
+    COUNT(DISTINCT oi.product_id) AS products_per_order,
+    SUM(oi.price) AS items_value,
+    SUM(oi.freight_value) AS freight_value,
+    SUM(oi.price + oi.freight_value) AS order_value
+  FROM order_items oi
+  GROUP BY oi.order_id
+)
+SELECT
+  om.order_id,
+  om.customer_id,
+  om.order_date,
+  om.late_flag,
+
+  om.approval_time_hours,
+  om.processing_time_hours,
+  om.last_mile_time_hours,
+  om.total_cycle_time_hours,
+
+  -- driver metrics (order complexity + $$)
+  ia.items_per_order,
+  ia.sellers_per_order,
+  ia.products_per_order,
+  ia.items_value,
+  ia.freight_value,
+  ia.order_value,
+  (ia.freight_value / NULLIF(ia.items_value, 0)) AS freight_ratio,
+
+  -- geo
+  c.customer_state,
+
+  -- severity metric (days late / early)
+  (o.order_delivered_customer_date::date - o.order_estimated_delivery_date::date) AS delivery_delay_days
+
+FROM vw_order_metrics om
+JOIN orders o
+  ON o.order_id = om.order_id
+LEFT JOIN item_agg ia
+  ON ia.order_id = om.order_id
+LEFT JOIN customers c
+  ON c.customer_id = om.customer_id;
+
+
+
 
